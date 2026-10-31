@@ -977,9 +977,9 @@ function ismaelCursedExchange(kind) {
     let el = document.getElementById('interaction-content'); if (el) renderIsmaelExchange(el);
 }
 // ===== 🔥 碧恩：屬性強化卷軸「賦予屬性」（v3.0.77 屬性強化系統改版·取代舊「祝福裝備」功能；克里斯特已移除） =====
-//   規則：只能用在「裝備中武器／副手武器(戰士限定)」；每次使用皆為獨立事件，成功率 7%；
+//   規則：只能用在「裝備中武器／副手武器(戰士限定)」；每次使用皆為獨立事件，成功率 70%（原 7% 的 10 倍）；
 //   無屬性成功→1階、同屬性成功→+1階（最高5階）、不同屬性成功→變成該屬性1階；
-//   第5階同屬性卷軸：原生無攻擊觸發技能的非遺物武器可用 1% 機率附加／重抽屬性魔法；同技能升星、不同技能回1星，最高3星；
+//   第5階同屬性卷軸：原生無攻擊觸發技能的非遺物武器可自選魔法選項，以 20%（原成功率再加10%）機率附加／重抽屬性魔法；同技能升星、不同技能回1星，最高3星；
 //   衝第4階需武器+10以上、第5階需+11以上（不符不消耗卷軸；🗡️ v3.7.29 noEnhance 非遺物武器＝古老的劍/巨劍 豁免門檻）；失敗僅消耗卷軸，武器不會消失。
 //   🎲 純機率 Math.random（與武器強化同政策·可 save/load 重抽）。經典/一般/傳統模式皆適用。
 const ATTR_SCROLLS = {
@@ -1004,10 +1004,13 @@ function doBianAttr(slotKey, ele) {
         if (weaponHasBaseTriggeredSkill(d, item.id)) { logSys('<span class="text-amber-300">此武器無法附加魔法。</span>'); return; }   // 原生已有攻擊／命中觸發技能，不消耗
         let pool = ATTR_MAGIC_SKILLS[ele] || [];
         if (!pool.length) return;
+        let selEl = document.getElementById(`bian-magic-${slotKey}`);
+        let targetSkId = selEl ? selEl.value : null;
+        let picked = pool.find(p => p.skId === targetSkId) || pool[0];
         let oldMagic = getAttrMagicProc(item);
         sc.cnt--; if (sc.cnt <= 0) player.inv = player.inv.filter(i => i.uid !== sc.uid);
-        if (Math.random() < 0.01) {
-            let picked = pool[Math.floor(Math.random() * pool.length)];
+        if (Math.random() < 0.20) {   // 🎲 20% 獨立事件（成功率再加 10%：10% + 10% = 20%）
+            // picked 已由玩家指定抽選魔法決定
             let sameMagic = !!(oldMagic && oldMagic.skId === picked.skId);
             let oldStar = oldMagic ? oldMagic.star : 0;
             let nextStar = sameMagic ? Math.min(3, oldStar + 1) : 1;
@@ -1018,9 +1021,10 @@ function doBianAttr(slotKey, ele) {
             let result = !oldMagic ? `獲得 ${stars} ${skName}` :
                 sameMagic ? (nextStar > oldStar ? `${skName} 升為 ${stars}` : `${skName} 維持 ${stars}`) :
                     `改為 ★ ${skName}`;
-            logSys(`<span class="text-yellow-300 font-bold">${oldMagic ? '重抽' : '附加'}魔法成功！</span>${getItemFullName(item)} ${result}，「攻擊時 ${picked.rate * nextStar}% 機率觸發」。`);
+            logSys(`<span class="text-yellow-300 font-bold">${oldMagic ? (sameMagic ? '魔法升星' : '更換魔法') : '附加魔法'}成功！</span>${getItemFullName(item)} ${result}，「攻擊時 ${picked.rate * nextStar}% 機率觸發」。`);
         } else {
-            logSys(`<span class="text-slate-400">碧恩：魔法刻印沒有回應……${oldMagic ? '原有附加魔法保持不變，' : ''}僅消耗 1 張 ${cfg.n}。</span>`);
+            let skName = (DB.skills[picked.skId] && DB.skills[picked.skId].n) || picked.skId;
+            logSys(`<span class="text-slate-400">碧恩：魔法刻印【${skName}】沒有回應……${oldMagic ? '原有附加魔法保持不變，' : ''}僅消耗 1 張 ${cfg.n}。</span>`);
         }
         calcStats(); updateUI(); renderTabs(true); saveGame();
         let _e5 = document.getElementById('interaction-content'); if (_e5) renderBianAttr(_e5);
@@ -1032,7 +1036,7 @@ function doBianAttr(slotKey, ele) {
     if (nextTier === 4 && en < 10 && !noEnhFree) { logSys('<span class="text-amber-300">武器需 +10 以上才能衝屬性第四階。</span>'); return; }   // 不消耗
     if (nextTier === 5 && en < 11 && !noEnhFree) { logSys('<span class="text-amber-300">武器需 +11 以上才能衝屬性第五階。</span>'); return; }   // 不消耗
     sc.cnt--; if (sc.cnt <= 0) player.inv = player.inv.filter(i => i.uid !== sc.uid);
-    if (Math.random() < 0.07) {   // 🎲 7% 獨立事件（純機率·可 save/load 重抽·同強化政策）
+    if (Math.random() < 0.70) {   // 🎲 70% 獨立事件（原 7% 的 10 倍·純機率·可 save/load 重抽·同強化政策）
         let oldMagic = getAttrMagicProc(item);
         item.attr = ATTR_ELE_PREFIX[ele] + nextTier;
         if (!same && (item.attrMagic || item.attrMagicStar)) { delete item.attrMagic; delete item.attrMagicStar; }   // 不同屬性成功→原屬性附加魔法與星級一併消失
@@ -1075,15 +1079,41 @@ function renderBianAttr(el) {
         let curTxt = cur ? `<span class="c-attr-${attrCanon(it.attr)}">${cur.n}（第${cur.tier}階）</span>` : '<span class="text-slate-500">無屬性</span>';
         let magic = it && getAttrMagicProc(it);
         if (magic) curTxt += `｜<span class="text-yellow-300">${'★'.repeat(magic.star)} ${(DB.skills[magic.skId] && DB.skills[magic.skId].n) || magic.skId} ${magic.rate}%</span>`;
+        let magicSelectHtml = '';
+        if (it && cur && cur.tier >= 5) {
+            let itD = DB.items[it.id];
+            if (weaponHasBaseTriggeredSkill(itD, it.id)) {
+                magicSelectHtml = `<div class="text-xs text-slate-500 mt-1">（此武器原生具備觸發技能，無法附加屬性魔法）</div>`;
+            } else {
+                let pool = ATTR_MAGIC_SKILLS[cur.ele] || [];
+                let curMagic = getAttrMagicProc(it);
+                let curSkId = curMagic ? curMagic.skId : (pool[0] && pool[0].skId);
+                let opts = pool.map(proc => {
+                    let skName = (DB.skills[proc.skId] && DB.skills[proc.skId].n) || proc.skId;
+                    let isSel = proc.skId === curSkId ? 'selected' : '';
+                    return `<option value="${proc.skId}" ${isSel}>${skName}（基礎觸發率 ${proc.rate}%）</option>`;
+                }).join('');
+                magicSelectHtml = `
+                <div class="flex items-center gap-2 mt-1 p-1.5 bg-slate-900/80 rounded border border-purple-900/60 text-xs">
+                    <span class="text-purple-300 font-bold shrink-0">第5階抽選魔法：</span>
+                    <select id="bian-magic-${sl.k}" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-amber-200 focus:outline-none flex-1">
+                        ${opts}
+                    </select>
+                </div>`;
+            }
+        }
         let btns = it ? Object.keys(ATTR_SCROLLS).map(e2 => {
             let c = ATTR_SCROLLS[e2], have = cnt(c.id);
+            let isTier5Same = !!(cur && cur.tier >= 5 && cur.ele === e2);
+            let btnLabel = isTier5Same ? `${c.n.slice(0, 2)}魔法刻印` : `${c.n.slice(0, 2)}強化`;
             return have > 0
-                ? `<button class="btn py-1 px-2 text-xs font-bold shrink-0 ${c.btn}" onclick="doBianAttr('${sl.k}','${e2}')">${c.n.slice(0, 2)}強化 (${have})</button>`
-                : `<button class="btn py-1 px-2 text-xs font-bold shrink-0 bg-slate-700 border-slate-600 text-slate-500 cursor-not-allowed" disabled title="缺少 ${c.n}">${c.n.slice(0, 2)}強化 (0)</button>`;
+                ? `<button class="btn py-1 px-2 text-xs font-bold shrink-0 ${c.btn}" onclick="doBianAttr('${sl.k}','${e2}')">${btnLabel} (${have})</button>`
+                : `<button class="btn py-1 px-2 text-xs font-bold shrink-0 bg-slate-700 border-slate-600 text-slate-500 cursor-not-allowed" disabled title="缺少 ${c.n}">${btnLabel} (0)</button>`;
         }).join('') : '';
         return `<div class="flex flex-col gap-1 bg-slate-800/60 border border-slate-600 rounded p-2 text-sm">
             <span class="truncate"><b class="text-amber-300">${sl.n}</b>：${name}｜${curTxt}</span>
-            <div class="flex items-center gap-1 flex-wrap">${btns}</div>
+            ${magicSelectHtml}
+            <div class="flex items-center gap-1 flex-wrap mt-1">${btns}</div>
         </div>`;
     }).join('');
     // 🔒 被詛咒的「已裝備」裝備仍可在此解除詛咒（任何部位·詛咒裝備無法卸下的唯一解）
@@ -1095,9 +1125,9 @@ function renderBianAttr(el) {
     }).join('');
     el.innerHTML = `
         <div class="flex flex-col gap-2 p-1">
-            <div class="text-slate-300 text-sm leading-relaxed">碧恩：我能將四大元素之力銘刻於你手中的武器。屬性提升成功率為 <b>7%</b>；第5階使用同屬性卷軸附加／重抽魔法的成功率為 <b>1%</b>。失敗僅消耗卷軸，武器不會消失。</div>
+            <div class="text-slate-300 text-sm leading-relaxed">碧恩：我能將四大元素之力銘刻於你手中的武器。屬性提升成功率為 <b>70%</b>；武器達第5階時可指定要抽選的魔法選項，使用同屬性卷軸刻印／升星的成功率為 <b>20%</b>。失敗僅消耗卷軸，武器不會消失。</div>
             <div class="text-xs text-slate-400">無屬性成功→第1階；同屬性成功→提升1階（最高5階）；<b>不同屬性成功→變成該屬性第1階</b>。衝第4階需武器+10以上、第5階需+11以上（<b>無法強化的武器如古老的劍／古老的巨劍免此門檻</b>）。第1~5階：額外傷害/額外魔法點數 +1/+3/+5/+7/+9，一般攻擊轉為該屬性。</div>
-            <div class="text-xs text-slate-400">只有本身沒有攻擊／命中觸發技能的非遺物武器可附加魔法；成功時從該屬性5種魔法中抽選。同技能升1星並使觸發率乘上星數，最高3星；抽到不同技能則改為新技能1星。</div>
+            <div class="text-xs text-slate-400">只有本身沒有攻擊／命中觸發技能的非遺物武器可附加魔法；第5階可自由選擇該屬性的目標魔法進行刻印。選定相同技能成功可升1星（最高3星）並提升觸發率，選定不同技能成功則更換為新技能1星。</div>
             <div class="text-xs text-slate-400">持有卷軸：<span class="c-attr-fr3">火 ${cnt('scroll_attr_fire')}</span>｜<span class="c-attr-wa3">水 ${cnt('scroll_attr_water')}</span>｜<span class="c-attr-wi3">風 ${cnt('scroll_attr_wind')}</span>｜<span class="c-attr-ea3">地 ${cnt('scroll_attr_earth')}</span></div>
             ${rows}
             ${cursedRows ? `<div class="text-xs text-slate-400 mt-1">被詛咒的裝備（優先消耗 解除詛咒的卷軸，持有 ${cnt('new_item_uncurse')}；無卷軸時花費 100 萬金幣）：</div>${cursedRows}` : ''}

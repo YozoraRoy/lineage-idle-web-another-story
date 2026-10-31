@@ -2061,6 +2061,21 @@ Object.assign(MOB_DROPS, {
         ['rng_earth', 10], ['blt_body', 10], ['acc_131', 10], ['acc_130', 10]
     ]
 });
+// 🔥 各屬性(火風地水)強化卷軸掉落率提高 50 倍
+(function () {
+    const ATTR_SCROLL_IDS = new Set(['scroll_attr_fire', 'scroll_attr_water', 'scroll_attr_wind', 'scroll_attr_earth']);
+    for (let mobName in MOB_DROPS) {
+        let list = MOB_DROPS[mobName];
+        if (Array.isArray(list)) {
+            list.forEach(entry => {
+                if (entry && ATTR_SCROLL_IDS.has(entry[0])) {
+                    entry[1] = Math.round(Number(entry[1]) * 50 * 10000) / 10000;
+                }
+            });
+        }
+    }
+})();
+
 // ⚖️ 負重顯示色：0～49% 暖白、50～81% 介面金黃、82%以上介面紅（loadTier 0/1/2～3）。
 function getLoadColor(tier){ return Number(tier) >= 2 ? 'load-tone-danger' : (Number(tier) >= 1 ? 'load-tone-warning' : 'load-tone-normal'); }
 // 🪆 取目前裝備之魔法娃娃的某 % 欄位值（expBonus/goldBonus/potionBonus…；未裝娃娃→0）

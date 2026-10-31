@@ -622,14 +622,19 @@ function trialExName(n, rewardId) { return `${DB.items[rewardId].n}${n > 1 ? ` �
 // 版型比照「製作」(renderUniversalCraft js/14)：左＝遺骸/卷軸圖示＋名稱＋兌換材料(craftReqHtml)，右＝數量輸入＋兌換鈕。
 function renderIoExchange(div) {
     let html = `<div class="text-slate-300 text-sm mb-1 px-1">伊奧：「席琳的力量凝於遺骸與咒文之中。獻上結晶，選擇你渴望的恩賜吧——至於遺骸承載哪一種祝福，由席琳決定。」</div>
-        <div class="text-slate-400 text-xs mb-3 px-1">每件消耗 <span class="c-sherine font-bold">席琳結晶 ×1</span>（背包優先，不足扣共用倉庫）。兌換出的遺骸必附<span class="c-sherine">隨機一種席琳套裝詞綴</span>；亦可直接兌換受祝福的武器或盔甲施法卷軸。</div>`;
+        <div class="text-slate-400 text-xs mb-3 px-1">每件消耗 <span class="c-sherine font-bold">席琳結晶 ×1</span>（背包優先，不足扣共用倉庫）。可兌換受祝福的武防施法卷軸、對飾品施法的卷軸、四大屬性武器強化卷軸，以及必附<span class="c-sherine">隨機一種席琳套裝詞綴</span>的指定遺骸。</div>`;
 
-    // 📜 祝福的施法卷軸兌換
+    // 📜 施法與強化卷軸兌換
     const IO_SCROLLS = [
         { id: 'scroll_weapon_b' },
-        { id: 'scroll_armor_b' }
+        { id: 'scroll_armor_b' },
+        { id: 'scroll_acc' },
+        { id: 'scroll_attr_fire' },
+        { id: 'scroll_attr_water' },
+        { id: 'scroll_attr_wind' },
+        { id: 'scroll_attr_earth' }
     ];
-    html += `<div class="text-amber-300 font-bold text-sm mt-1 mb-2 px-1">📜 祝福的施法卷軸</div>`;
+    html += `<div class="text-amber-300 font-bold text-sm mt-1 mb-2 px-1">📜 施法與強化卷軸</div>`;
     IO_SCROLLS.forEach(s => {
         let d = DB.items[s.id];
         if (!d) return;
@@ -681,7 +686,7 @@ function renderIoExchange(div) {
 }
 function doIoExchange(targetId) {
     let isRem = SHERINE_REMAINS.some(r => r.id === targetId);
-    let isScroll = targetId === 'scroll_weapon_b' || targetId === 'scroll_armor_b';
+    let isScroll = ['scroll_weapon_b', 'scroll_armor_b', 'scroll_acc', 'scroll_attr_fire', 'scroll_attr_water', 'scroll_attr_wind', 'scroll_attr_earth'].includes(targetId);
     if (!isRem && !isScroll) return;
     let qtyInput = document.getElementById(`io-qty-${targetId}`);
     let qty = Math.max(1, parseInt(qtyInput && qtyInput.value) || 1);
