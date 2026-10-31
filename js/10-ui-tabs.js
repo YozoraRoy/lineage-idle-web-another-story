@@ -172,9 +172,9 @@ function renderTabs(force) {
     })();
     if(!force && _sig === renderTabs._sig) return;
     renderTabs._sig = _sig;
-    // 真的要重建時，先記住各分頁的捲動位置，重建後還原（避免跳回頂端）
+    // 真的要重建時，先記住裝備與技能分頁的捲動位置，重建後還原（避免跳回頂端）
     let _scroll = {};
-    ['tab-items','tab-weapons','tab-armors','tab-equip','tab-skill'].forEach(id => { let el = document.getElementById(id); if(el) { let sc=el.querySelector('.classic-inventory-viewport,.classic-skill-grid-scroll'); _scroll[id] = sc ? sc.scrollTop : el.scrollTop; } });   // 🎨 v3.0.40 1.8皮膚：捲動位置存在內層 viewport（技能頁為 .classic-skill-grid-scroll）
+    ['tab-equip','tab-skill'].forEach(id => { let el = document.getElementById(id); if(el) { let sc=el.querySelector('.classic-inventory-viewport,.classic-skill-grid-scroll'); _scroll[id] = sc ? sc.scrollTop : el.scrollTop; } });
 
     let eDiv = document.getElementById('tab-equip'); eDiv.innerHTML = '';
     { let _wd = player.d || {}; let _t = _wd.loadTier || 0; let _hdr = document.createElement('div'); _hdr.className = 'classic-list-toolbar text-center py-0.5 rounded bg-slate-900/60 border border-slate-700 text-sm font-bold leading-tight' + (_t >= 1 ? ' cursor-help' : ''); if (_t >= 1) { _hdr.title = _t === 1 ? '負重50%↑：HP/MP不自然恢復' : (_t === 2 ? '負重82%↑：HP/MP不自然恢復、停自動施法、攻速變慢' : '負重100%↑：HP/MP不自然恢復、停自動施法、攻速大幅變慢'); } _hdr.innerHTML = `<span class="${getLoadColor(_t)}">負重 ${_wd.weightPct||0}%</span>`; eDiv.appendChild(_hdr); }
@@ -262,17 +262,54 @@ function renderTabs(force) {
         }
         eDiv.appendChild(el);
     });
-    
-    // 👇 清空新的三個面板
-    let wDiv = document.getElementById('tab-weapons'); wDiv.innerHTML = '';
-    let aDiv = document.getElementById('tab-armors'); aDiv.innerHTML = '';
-    let iDiv = document.getElementById('tab-items'); iDiv.innerHTML = '';
+    decorateClassicInventoryTab(eDiv);
+
+    // 🎨 技能欄使用新版 4×6 皮膚（技能欄位.png·tier strip 導覽·底部 S.power=魔法傷害/M.resist=MR）。
+    //    取代原「依學習來源分組 ICON」排版；仍走 data-tip-skill tooltip、manualCast、updateSummonLock。
+    let sDiv = document.getElementById('tab-skill');
+    renderClassicSkillBook(sDiv);
+    // 還原裝備與技能捲動位置
+    ['tab-equip','tab-skill'].forEach(id => { let el = document.getElementById(id); if(el && _scroll[id] != null) { let sc=el.querySelector('.classic-inventory-viewport,.classic-skill-grid-scroll'); if(sc)sc.scrollTop=_scroll[id]; else el.scrollTop=_scroll[id]; } });
+    updateSummonLock();
+    if (typeof refreshEquipmentWindow === 'function') refreshEquipmentWindow();
+
+    // 🗡️🛡️🧰 首次尚未渲染武器/防具/道具欄位時初始化一次；之後取消自動刷新，由玩家操作/切換分頁/點擊刷新觸發
+    if (!_bagTabsRendered) {
+        renderBagTabs(true);
+    }
+}
+
+// 🗡️🛡️🧰 背包分頁渲染（武器/防具/道具欄位）：取消自動刷新，僅在手動操作、切換分頁或點擊刷新時重繪
+let _bagTabsRendered = false;
+function renderBagTabs(force) {
+    if(state.ff || (typeof catchupActive === 'function' && catchupActive())) return; // 補跑期間不重繪
+    if(!force && (_tabPointerDown || _tabWheelActive)) { _tabRebuildPending = true; return; }
+
+    let _bagSig = (function(){
+        let inv = (player && player.inv) ? player.inv.map(i => itemSig(i) + '.' + (i.cnt||1) + '.' + (i.lock?1:0) + '.' + (i.junk?1:0)).join(';') : '';
+        let qk = (typeof quickEnh !== 'undefined' ? JSON.stringify([quickEnh.wpn.active, quickEnh.arm.active, quickJunk.wpn.active, quickJunk.arm.active, quickJunk.item.active, (typeof quickRecycle !== 'undefined' && quickRecycle) ? [quickRecycle.wpn.active, quickRecycle.arm.active, quickRecycle.item.active, quickRecycle.wpn.mode, quickRecycle.arm.mode, quickRecycle.item.mode] : '']) : '');
+        return `${inv}#${qk}`;
+    })();
+    if (!force && _bagTabsRendered && _bagSig === renderBagTabs._sig) return;
+    renderBagTabs._sig = _bagSig;
+    _bagTabsRendered = true;
+
+    // 記住武器/防具/道具的捲動位置
+    let _scroll = {};
+    ['tab-items','tab-weapons','tab-armors'].forEach(id => { let el = document.getElementById(id); if(el) { let sc=el.querySelector('.classic-inventory-viewport'); _scroll[id] = sc ? sc.scrollTop : el.scrollTop; } });
+
+    // 👇 清空三個面板
+    let wDiv = document.getElementById('tab-weapons'); if (wDiv) wDiv.innerHTML = '';
+    let aDiv = document.getElementById('tab-armors'); if (aDiv) aDiv.innerHTML = '';
+    let iDiv = document.getElementById('tab-items'); if (iDiv) iDiv.innerHTML = '';
+    if (!wDiv || !aDiv || !iDiv) return;
 
     // ⚡🗑️ 快速操作頭部：武器/防具分頁＝[快速強化][快速廢品]；道具分頁＝[快速廢品]
     wDiv.appendChild(buildQuickHeader('wpn'));
     aDiv.appendChild(buildQuickHeader('arm'));
     iDiv.appendChild(buildQuickHeader('item'));
 
+    if (player && Array.isArray(player.inv)) {
 player.inv.forEach(i => {
     if(!DB.items[i.id]) return;
     let d = DB.items[i.id];
@@ -375,17 +412,12 @@ player.inv.forEach(i => {
         iDiv.appendChild(el); 
     }
 });
-    // 🎨 v3.0.40 1.8 物品介面：保留原清單事件與功能，只把內容搬入八格皮膚的可捲動區。
-    [eDiv,wDiv,aDiv,iDiv].forEach(decorateClassicInventoryTab);
+    }
 
-    // 🎨 技能欄使用新版 4×6 皮膚（技能欄位.png·tier strip 導覽·底部 S.power=魔法傷害/M.resist=MR）。
-    //    取代原「依學習來源分組 ICON」排版；仍走 data-tip-skill tooltip、manualCast、updateSummonLock。
-    let sDiv = document.getElementById('tab-skill');
-    renderClassicSkillBook(sDiv);
-    // 還原各分頁捲動位置
-    ['tab-items','tab-weapons','tab-armors','tab-equip','tab-skill'].forEach(id => { let el = document.getElementById(id); if(el && _scroll[id] != null) { let sc=el.querySelector('.classic-inventory-viewport,.classic-skill-grid-scroll'); if(sc)sc.scrollTop=_scroll[id]; else el.scrollTop=_scroll[id]; } });   // 🎨 v3.0.40 1.8皮膚：捲動位置還原到內層 viewport（技能頁為 .classic-skill-grid-scroll）
-    updateSummonLock();
-    if (typeof refreshEquipmentWindow === 'function') refreshEquipmentWindow();
+    [wDiv, aDiv, iDiv].forEach(decorateClassicInventoryTab);
+
+    // 還原武器/防具/道具捲動位置
+    ['tab-items','tab-weapons','tab-armors'].forEach(id => { let el = document.getElementById(id); if(el && _scroll[id] != null) { let sc=el.querySelector('.classic-inventory-viewport'); if(sc)sc.scrollTop=_scroll[id]; else el.scrollTop=_scroll[id]; } });
 }
 
 // 🎨 v3.0.40 1.8 風格道具欄皮膚（移植自參考版）：把分頁內容搬進「八格框底圖」的可捲動 viewport，
@@ -437,6 +469,13 @@ function decorateClassicInventoryTab(div){
     let auto=sortMenu.querySelector('input');if(auto)auto.onchange=()=>toggleInventoryAutoSort(auto.checked);
     sortWrap.appendChild(sortBtn);sortWrap.appendChild(sortMenu);
     shell.appendChild(viewport); shell.appendChild(up); shell.appendChild(down); shell.appendChild(sortWrap);
+    let refreshWrap=document.createElement('div');
+    refreshWrap.className='classic-refresh-wrap';
+    let refreshBtn=document.createElement('button');
+    refreshBtn.type='button'; refreshBtn.className='classic-refresh-button'; refreshBtn.title='手動刷新欄位'; refreshBtn.setAttribute('aria-label','手動刷新欄位'); refreshBtn.textContent='🔄';
+    refreshBtn.onclick=(ev)=>{ev.stopPropagation(); if(typeof renderBagTabs==='function') renderBagTabs(true); if(typeof renderTabs==='function') renderTabs(true); };
+    refreshWrap.appendChild(refreshBtn);
+    shell.appendChild(refreshWrap);
     let quick=Array.from(div.children).find(x=>x.classList.contains('sticky'));
     if(quick)quick.classList.add('classic-list-toolbar');
     div.appendChild(shell);
@@ -1694,10 +1733,10 @@ function buildQuickEnhanceHeader(type) {
 
 // 注意：renderTabs 有「背包/裝備內容簽章」快取，內容未變會提早 return。快速強化只改 quickEnh 狀態（不在簽章內），
 //       故這些切換一律用 renderTabs(true) 強制重建，否則畫面不會更新。
-function toggleQuickEnhance(type) { if (quickJunk[type] && quickJunk[type].active) { quickJunk[type].active = false; quickJunk[type].sel = {}; } if (quickRecycle && quickRecycle[type] && quickRecycle[type].active) { quickRecycle[type].active = false; quickRecycle[type].sel = {}; } let st = quickEnh[type]; st.active = true; if (st.target == null) st.target = 6; st.sel = {}; renderTabs(true); }
-function cancelQuickEnhance(type) { let st = quickEnh[type]; st.active = false; st.sel = {}; renderTabs(true); }
-function quickEnhanceSelectAll(type, checked) { let st = quickEnh[type]; st.sel = {}; if (checked) _qeEligibleItems(type).forEach(i => st.sel[i.uid] = true); renderTabs(true); }
-function toggleQuickItem(type, uid) { let st = quickEnh[type]; if (st.sel[uid]) delete st.sel[uid]; else st.sel[uid] = true; renderTabs(true); }
+function toggleQuickEnhance(type) { if (quickJunk[type] && quickJunk[type].active) { quickJunk[type].active = false; quickJunk[type].sel = {}; } if (quickRecycle && quickRecycle[type] && quickRecycle[type].active) { quickRecycle[type].active = false; quickRecycle[type].sel = {}; } let st = quickEnh[type]; st.active = true; if (st.target == null) st.target = 6; st.sel = {}; renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
+function cancelQuickEnhance(type) { let st = quickEnh[type]; st.active = false; st.sel = {}; renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
+function quickEnhanceSelectAll(type, checked) { let st = quickEnh[type]; st.sel = {}; if (checked) _qeEligibleItems(type).forEach(i => st.sel[i.uid] = true); renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
+function toggleQuickItem(type, uid) { let st = quickEnh[type]; if (st.sel[uid]) delete st.sel[uid]; else st.sel[uid] = true; renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
 
 function runQuickEnhance(type) {
     let st = quickEnh[type];
@@ -1745,7 +1784,7 @@ function runQuickEnhance(type) {
     parts.push(`<span class="text-red-400">爆裝 ${destroyed} 件</span>`);
     logSys(`<span class="text-blue-300 font-bold">快速強化完成（目標 +${goal}${st.useBless ? '·祝福卷' : ''}）：</span>${parts.join('、')}，消耗 ${usedTotal} 張${st.useBless ? '祝福' : ''}卷軸。`);
     calcStats();
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
     saveGame();
 }
 
@@ -1850,25 +1889,25 @@ function toggleQuickRecycle(type) {
     st.active = true;
     st.sel = {};
     if (!st.mode) st.mode = 'gold';
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 function cancelQuickRecycle(type) {
     let st = quickRecycle[type];
     st.active = false;
     st.sel = {};
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 function quickRecycleSelectAll(type, checked) {
     let st = quickRecycle[type];
     st.sel = {};
     if (checked) _qrEligibleItems(type).forEach(i => st.sel[i.uid] = true);
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 function toggleQuickRecycleItem(type, uid) {
     let st = quickRecycle[type];
     if (st.sel[uid]) delete st.sel[uid];
     else st.sel[uid] = true;
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 
 // 執行快速回收
@@ -1939,7 +1978,7 @@ function runQuickRecycle(type) {
 
     st.active = false;
     st.sel = {};
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
     updateUI();
     try { saveGame(); } catch (e) {}
 }
@@ -1950,7 +1989,7 @@ function toggleQuickJunk(type) {
     if (quickRecycle && quickRecycle[type] && quickRecycle[type].active) { quickRecycle[type].active = false; quickRecycle[type].sel = {}; }
     let st = quickJunk[type]; st.active = true; st.sel = {}; st.known = {};
     _qjEligibleItems(type).forEach(i => { st.known[i.uid] = true; if (i.junk) st.sel[i.uid] = true; });   // 開啟當下：全部納入 known，已是廢品者預先勾選
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 // 🔧 面板開啟後才掉落／新增的可廢品物品：比照「開啟當下」納入面板——標記 known，且「已是廢品(junkPrefs 自動標記)」者預先勾選。
 //    這樣確認時不會把這些新廢品當成「未勾選」而誤 i.junk=false＋刪除 junkPrefs（刪簽章＝整類廢品記憶被取消）。已在 known 者不再覆寫其勾選狀態（尊重使用者手動取消勾選）。
@@ -1959,9 +1998,9 @@ function _qjSync(type) {
     if (!st.known) st.known = {};
     _qjEligibleItems(type).forEach(i => { if (!st.known[i.uid]) { st.known[i.uid] = true; if (i.junk) st.sel[i.uid] = true; } });
 }
-function cancelQuickJunk(type) { let st = quickJunk[type]; st.active = false; st.sel = {}; st.known = {}; renderTabs(true); }
-function quickJunkSelectAll(type, checked) { let st = quickJunk[type]; st.sel = {}; if (checked) _qjEligibleItems(type).forEach(i => st.sel[i.uid] = true); renderTabs(true); }
-function toggleQuickJunkItem(type, uid) { let st = quickJunk[type]; if (st.sel[uid]) delete st.sel[uid]; else st.sel[uid] = true; renderTabs(true); }
+function cancelQuickJunk(type) { let st = quickJunk[type]; st.active = false; st.sel = {}; st.known = {}; renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
+function quickJunkSelectAll(type, checked) { let st = quickJunk[type]; st.sel = {}; if (checked) _qjEligibleItems(type).forEach(i => st.sel[i.uid] = true); renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
+function toggleQuickJunkItem(type, uid) { let st = quickJunk[type]; if (st.sel[uid]) delete st.sel[uid]; else st.sel[uid] = true; renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true); }
 // 確認：依勾選最終狀態設定每件 junk（勾＝廢品、未勾＝取消廢品），同步 junkPrefs（記憶/取消記憶）
 function runQuickJunk(type) {
     let st = quickJunk[type];
@@ -1978,7 +2017,7 @@ function runQuickJunk(type) {
     if (marked > 0) _bumpJunkSellTimer();   // 🗑️ 有新標記廢品→重置自動賣出倒數（標完 10 秒（掃描節奏；真正的寬限期是 autoSellRules.delaySec，預設 60 秒）才賣）
     st.active = false; st.sel = {}; st.known = {};
     logSys(`<span class="text-amber-300 font-bold">快速廢品完成：</span>標記 ${marked} 件、取消 ${unmarked} 件。`);
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
     saveGame();
 }
 
@@ -2157,6 +2196,7 @@ function toggleJunk(uid) {
     else { delete player.junkPrefs[itemSig(item)]; if (item._ruleJunk) { item._userKeep = true; item._ruleJunk = false; delete item.junkSince; delete item._autoSellQty; } }   // 🛡️ v2.6.69 審計#10：取消「規則標記」→ 記住玩家意圖，applyAutoSellRules 不再重標（防呆說明「可取消廢品標記」自此屬實）
     openModal(item, false);
     renderTabs();
+    if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 
 // 一鍵排列：依規則重新排序背包（武器 / 防具飾品 / 道具 各自分頁內排序）
@@ -2227,7 +2267,7 @@ function setInventorySortMode(mode){
     if(!player||!['category','quality','name'].includes(mode))return;
     player[INV_SORT_MODE_KEY]=mode; player.inv.sort(invSortCmp);
     if(typeof resetCatchupGainItemIndex==='function')resetCatchupGainItemIndex();
-    if(typeof saveGame==='function')saveGame(); renderTabs(true);
+    if(typeof saveGame==='function')saveGame(); renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
 }
 function toggleInventoryAutoSort(on){ if(!player)return;player.inventoryAutoSort=!!on;if(typeof saveGame==='function')saveGame(); }
 
@@ -2246,7 +2286,7 @@ function sortInventoryNow() {
     if (!player || !Array.isArray(player.inv)) return;
     player.inv.sort(invSortCmp);
     if (typeof resetCatchupGainItemIndex === 'function') resetCatchupGainItemIndex();
-    renderTabs(true);
+    renderTabs(true); if(typeof renderBagTabs==='function') renderBagTabs(true);
     logSys('<span class="text-cyan-300 font-bold">背包已重新排列。</span>');
 }
 // 🔧 v2.6.74 自動化設定改「分頁內嵌」（#tab-automation·與能力/技能同框架·switchTab 切換）；v2.6.73 的浮動視窗與 toggleAutomationWindow 已移除。
@@ -2281,7 +2321,7 @@ function autoSellJunk(manual) {   // manual=true → 玩家按「一鍵賣出」
     if (_gone.size) player.inv = player.inv.filter(i => !_gone.has(i.uid));
     player.gold += totalGold;
     logSys(`<span class="text-amber-300">${manual ? '一鍵賣出' : '系統自動賣出'} ${toSell.length} 件(共 ${totalCount} 個)廢品，獲得 <span class="text-yellow-400 font-bold">${totalGold}</span> 金幣。</span>`);
-    renderTabs();
+    renderTabs(); if(manual && typeof renderBagTabs==='function') renderBagTabs(true);
     updateUI();
     if(_grantSold) { calcStats(); renderSkillSelects(); }
     if(manual) saveGame();   // ⚡ 只有手動「一鍵賣出」才立即存檔；自動賣出不 saveGame（避免每 10 秒壓縮整包存檔·靠其他存檔點落地）
@@ -2531,7 +2571,7 @@ function sellItem(uid, count, unitPrice) {
     if(_wasGrant) { calcStats(); renderSkillSelects(); }   // 失去授予技能頭盔：立即更新
 }
 
-function closeModal() { document.getElementById('item-modal').classList.add('hidden'); }
+function closeModal() { document.getElementById('item-modal').classList.add('hidden'); if (typeof renderBagTabs === 'function') renderBagTabs(true); }
 function _pvpTabEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -2857,6 +2897,10 @@ function switchTab(t, btn) {
     if(t === 'pvp' && typeof renderPvpTab === 'function') renderPvpTab();
     if(t === 'clan' && typeof renderClanTab === 'function') renderClanTab();
     if(t === 'automation' && typeof syncNpcLanguageSetting === 'function') syncNpcLanguageSetting();
+    // 🗡️🛡️🧰 武器/防具/道具欄位：取消自動刷新，切換至該分頁或點選該分頁時手動刷新
+    if(t === 'weapons' || t === 'armors' || t === 'items') {
+        if(typeof renderBagTabs === 'function') renderBagTabs(true);
+    }
 }
 
 // ===== 🤝 協力傭兵隊伍面板（Phase 1：顯示血/魔/經驗條＋每傭兵攻擊技能/治癒魔法設定）=====

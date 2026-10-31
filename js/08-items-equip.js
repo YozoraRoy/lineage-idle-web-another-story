@@ -484,7 +484,8 @@ function batchUseItem(u) {
         if (item.cnt <= 0) player.inv = player.inv.filter(i => i.uid !== item.uid);
         calcStats();
         logSys(`使用了 <span class="${d.c || 'text-pink-300'} font-bold">${d.n}</span> ×${nP}，${STAT_CN[st]} 永久 +${nP}！（萬能藥已使用 ${player.panaceaUsed}/60）`);
-        renderTabs(); updateUI(); saveGame();
+        renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true); updateUI(); saveGame();
         if (!document.getElementById('item-modal').classList.contains('hidden')) closeModal();
         return;
     }
@@ -500,7 +501,8 @@ function batchUseItem(u) {
     item.cnt -= n;
     if (item.cnt <= 0) player.inv = player.inv.filter(i => i.uid !== item.uid);
     logSys(`使用了 <span class="${d.c || 'text-sky-300'} font-bold">${d.n}</span> ×${n}，獲得 <span class="text-yellow-300 font-bold">${_xp.toLocaleString()}</span> 點經驗值！`);
-    renderTabs(); updateUI(); saveGame();
+    renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true); updateUI(); saveGame();
     if (!document.getElementById('item-modal').classList.contains('hidden')) closeModal();
 }
 function useItem(u, silent = false) {
@@ -538,7 +540,8 @@ function useItem(u, silent = false) {
         item.cnt--; if (item.cnt <= 0) player.inv = player.inv.filter(i => i.uid !== item.uid);
         gainItem(_passId, 1);
         logSys(`<span class="text-amber-300 font-bold">封印解除！</span>你獲得了 <span class="text-amber-300 font-bold">${DB.items[_passId].n}</span>，攜帶在身上即可進入對應樓層。`);
-        renderTabs(); updateUI(); saveGame();
+        renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true); updateUI(); saveGame();
         if (!document.getElementById('item-modal').classList.contains('hidden')) closeModal();
         return;
     }
@@ -582,7 +585,8 @@ function useItem(u, silent = false) {
             let _tEn = 0;   // 🏛️ v3.0.83 傳統模式已取消：重獲魔力的魔杖恆 +0（沿用手動強化）
             invAddOrStack({ id:resultId, uid:uid(), cnt:1, en:_tEn, bless:false, anc:false, attr:false, seteff:_seteff, lock:false, junk:false });
             logSys(`<span class="c-legend font-bold">靈魂之球與${powerlessName}發出強烈的銀色光芒！</span><span class="text-amber-200">你獲得了 ${_tEn>0?('+'+_tEn+' '):''}${resultName}${_seteff ? `（<span class="c-sherine font-bold">${_seteff}</span>）` : ''}！</span>`);
-            renderTabs(); updateUI(); saveGame();
+            renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true); updateUI(); saveGame();
             if (!document.getElementById('item-modal').classList.contains('hidden')) closeModal();
             return true;
         };
@@ -736,6 +740,7 @@ function useItem(u, silent = false) {
             logSys(`學習了技能: <span class="text-cyan-300">${DB.skills[d.sk].n}</span>`);
             consume(item);
             renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true);
             renderSkillSelects();
         } else logSys(`你已經學過這個技能了。`);
     }
@@ -1058,6 +1063,7 @@ function equipItem(item) {
     logSys(`裝備了 ${getItemFullName(singleItem)}。`);
     calcStats();
     renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true);
     renderSkillSelects();   // 穿戴裝備後即時更新自動化技能選項（如魔法頭盔授予的法術）
     closeModal();
 }
@@ -1079,6 +1085,7 @@ function unequipItem(slot) {
         syncDualWield();    // ⚔️ 迅猛雙斧：卸下主手後副手條件失效則退回背包
         calcStats();
         renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true);
         renderSkillSelects();   // 卸下裝備後即時更新自動化技能選項
     }
     closeModal();
@@ -1088,6 +1095,7 @@ function consume(item) {
     item.cnt--;
     if (item.cnt <= 0) player.inv = player.inv.filter(i => i.uid !== item.uid);
     renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true);
 }
 
 function buyItem(id, qty) {
@@ -1192,6 +1200,7 @@ function doEnhance(targetUid, isEq = true) {
     
     calcStats();
     renderTabs();
+    if (typeof renderBagTabs === 'function') renderBagTabs(true);
     closeModal();
     
     // 👇 自動存檔機制：不論成功、失敗或無變化，結算完立刻強制儲存進度！
