@@ -12,8 +12,7 @@
     const BROADCAST_MS = 5 * 60 * 1000;
     const GOLD_BROADCAST_OFFSET_MS = 1 * 60 * 1000;   // 龍鑽先喊；金幣延後 1 分鐘，兩者仍各自每 5 分鐘廣播
     const BROADCAST_PIN_MAX = 2;   // 📌 v3.5.77 叫賣訊息常駐在「系統與物品日誌」頂端的最大條數（超出者排隊，前面的人被互動/離場後自動遞補）
-    const BOARD_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-    const RELIC_SEARCH_COST = 100;
+    const RELIC_SEARCH_COST = 1;
     const WANDERER_CHANCE = 0.50;
     const GOLD_WANDERER_CHANCE = 0.30;
     const WANDERER_CARD_CHANCE = 0.10;
@@ -251,9 +250,9 @@
             diamonds: 0,
             wanderers: [],
             boards: [
-                { contract: null, cooldownUntil: 0 },
-                { contract: null, cooldownUntil: 0 },
-                { contract: null, cooldownUntil: 0 }
+                { contract: null },
+                { contract: null },
+                { contract: null }
             ],
             nameHistory: [],
             updatedAt: Date.now()
@@ -301,8 +300,7 @@
         st.boards = [0, 1, 2].map(i => {
             let b = st.boards[i] && typeof st.boards[i] === 'object' ? st.boards[i] : {};
             return {
-                contract: b.contract && typeof b.contract === 'object' ? b.contract : null,
-                cooldownUntil: Math.max(0, Math.floor(Number(b.cooldownUntil) || 0))
+                contract: b.contract && typeof b.contract === 'object' ? b.contract : null
             };
         });
         delete st.equipmentProofUntil;   // 舊版「裝備僅查驗」資料不再使用；現在交易會直接消耗裝備。
@@ -1728,16 +1726,14 @@
 
     function pandoraStartRelicSearch(category) {
         if (!RELIC_CATEGORIES[category]) return;
-        let now = Date.now();
         let result = _withStateLock(st => {
-            let slot = st.boards.findIndex(b => !b.contract && Number(b.cooldownUntil || 0) <= now);
-            if (slot < 0) return { commit: false, error: '三個遺物欄位都在使用中或冷卻中。' };
+            let slot = st.boards.findIndex(b => !b.contract);
+            if (slot < 0) return { commit: false, error: '三個遺物欄位都在使用中。' };
             if (st.diamonds < RELIC_SEARCH_COST) return { commit: false, error: `龍之鑽石不足，需要 ${RELIC_SEARCH_COST} 顆。` };
             let made = _makeRelicContract(st, category);
             if (made.error) return { commit: false, error: made.error };
             st.diamonds -= RELIC_SEARCH_COST;
             st.boards[slot].contract = made.contract;
-            st.boards[slot].cooldownUntil = 0;
             return { slot: slot, contract: made.contract };
         });
         if (!result.ok) {
@@ -1757,7 +1753,6 @@
 
     function pandoraRelicBoardHTML() {
         let st = _readState();
-        let now = Date.now();
         let cards = st.boards.map((b, i) => {
             if (b.contract) {
                 let c = b.contract;
@@ -1789,14 +1784,6 @@
                     </div>
                 </div>`;
             }
-            if (Number(b.cooldownUntil || 0) > now) {
-                return `<div class="pandora-relic-slot cooling">
-                    <div class="pandora-relic-slot-no">布告 ${i + 1}</div>
-                    <div class="pandora-relic-empty-icon">⌛</div>
-                    <div>欄位冷卻中</div>
-                    <small class="pandora-relic-cd" data-until="${Math.floor(b.cooldownUntil)}">${_remainingText(b.cooldownUntil - now)}</small>
-                </div>`;
-            }
             return `<div class="pandora-relic-slot empty">
                 <div class="pandora-relic-slot-no">布告 ${i + 1}</div>
                 <div class="pandora-relic-empty-icon">◇</div>
@@ -1807,17 +1794,10 @@
         return `<section class="pandora-relic-board">
             <div class="pandora-relic-board-head">
                 <b>遺物布告欄</b>
-                <span>搜尋費用 ${RELIC_SEARCH_COST} 龍之鑽石・完成或取消後，該欄冷卻 24 小時</span>
+                <span>搜尋費用 ${RELIC_SEARCH_COST} 龍之鑽石</span>
             </div>
             <div class="pandora-relic-grid">${cards}</div>
         </section>`;
-    }
-
-    function pandoraRelicBindBoardCountdowns() {
-        document.querySelectorAll('.pandora-relic-cd[data-until]').forEach(el => {
-            let until = Number(el.dataset.until) || 0;
-            el.textContent = until > Date.now() ? _remainingText(until - Date.now()) : '冷卻完成，重新開啟黑市即可使用';
-        });
     }
 
     function pandoraRelicTipShow(ev, id) {
@@ -1860,7 +1840,6 @@
                 return { commit: false, error: '交付物品時倉庫資料發生變動，請重新開啟黑市確認。' };
             }
             st.boards[slotIndex].contract = null;
-            st.boards[slotIndex].cooldownUntil = Date.now() + BOARD_COOLDOWN_MS;
             return { relicId: live.relicId, rollback: _rb };
         });
         if (!result.ok) {
@@ -1878,7 +1857,7 @@
             gainItem(result.relicId, 1, true, true, false);
         }
         let d = DB.items[result.relicId];
-        _setPandoraNotice('success', `完成遺物布告，獲得${d ? d.n : '遺物'}。第 ${slotIndex + 1} 欄進入 24 小時冷卻。`);
+        _setPandoraNotice('success', `完成遺物布告，獲得${d ? d.n : '遺物'}。`);
         if (typeof logSys === 'function') logSys(`<span class="text-purple-300 font-bold">完成潘朵拉遺物布告，獲得 ${_esc(d ? d.n : result.relicId)}。</span>`);
         try { updateUI(); renderTabs(); saveGame(); } catch (e) {}
         _rerenderPandora();
@@ -1890,11 +1869,10 @@
             if (!b || !b.contract) return { commit: false, error: '此欄目前沒有遺物布告。' };
             let relicId = b.contract.relicId;
             b.contract = null;
-            b.cooldownUntil = Date.now() + BOARD_COOLDOWN_MS;
             return { relicId: relicId };
         });
         if (!result.ok) _setPandoraNotice('error', result.error || '取消資料正忙碌，請稍後重試。');
-        else _setPandoraNotice('info', `已取消第 ${slotIndex + 1} 欄的遺物布告，該欄進入 24 小時冷卻。`);
+        else _setPandoraNotice('info', `已取消第 ${slotIndex + 1} 欄的遺物布告。`);
         _rerenderPandora();
     }
 
@@ -1910,7 +1888,7 @@
         return !!result.ok;
     }
 
-    // 匯出／匯入只處理龍之鑽石，不覆蓋叫賣 NPC、遺物布告欄與冷卻中的共用市場資料。
+    // 匯出／匯入只處理龍之鑽石，不覆蓋叫賣 NPC 與遺物布告欄的共用市場資料。
     function pandoraGetSharedDiamonds() {
         return _readState().diamonds;
     }
@@ -1961,7 +1939,6 @@
     window.pandoraStartRelicSearch = pandoraStartRelicSearch;
     window.pandoraRelicBalanceHTML = pandoraRelicBalanceHTML;
     window.pandoraRelicBoardHTML = pandoraRelicBoardHTML;
-    window.pandoraRelicBindBoardCountdowns = pandoraRelicBindBoardCountdowns;
     window.pandoraRelicTipShow = pandoraRelicTipShow;
     window.pandoraExchangeRelic = pandoraExchangeRelic;
     window.pandoraCancelRelicBoard = pandoraCancelRelicBoard;
@@ -1972,7 +1949,6 @@
 
     setTimeout(wanderingBuyerSystemTick, 1500);
     setInterval(wanderingBuyerSystemTick, 30000);
-    setInterval(pandoraRelicBindBoardCountdowns, 1000);
     setInterval(_pinExpiryWatch, 1000);   // 📌 v3.5.77 釘選中的叫賣者一到期就換下一位（只比對兩個數字·到期那一刻才真的重畫）
     try {
         window.addEventListener('storage', e => {

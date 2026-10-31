@@ -1799,6 +1799,8 @@ function initCombatLogLock() {
 let quickEnh = { wpn: { active: false, target: 6, sel: {}, useBless: false }, arm: { active: false, target: 6, sel: {}, useBless: false } };   // 🌟 useBless：快速強化是否使用祝福卷（成功時 +1~+3）
 // 🗑️ 快速廢品（批次標記廢品）狀態：wpn/arm/item 三分頁；啟用時預先勾選「已是廢品」者。sel 為 uid→true。（與快速強化同分頁互斥）
 let quickJunk = { wpn: { active: false, sel: {}, known: {} }, arm: { active: false, sel: {}, known: {} }, item: { active: false, sel: {}, known: {} } };   // known＝面板開啟時(及之後同步)已納入的物品 uid，避免「面板開啟後才掉落的廢品」於確認時被誤取消標記
+// ♻️ 快速回收（批次浮動回收）狀態：wpn/arm/item 三分頁；mode: 'gold' | 'diamond' | 'scroll'（卷軸優先，無強化者金幣）；sel 為 uid→true
+let quickRecycle = { wpn: { active: false, mode: 'gold', sel: {} }, arm: { active: false, mode: 'gold', sel: {} }, item: { active: false, mode: 'gold', sel: {} } };
 
 // ===== ⚔️ 戰鬥日誌來源過濾（敵人/玩家/傭兵/召喚/夥伴）=====
 // _combatSrc：目前正在記錄的戰鬥訊息來源，由各攻擊派發點設定；為 null 時依顏色 type 推定（'enemy'→敵人，其餘→玩家）。
@@ -1819,8 +1821,8 @@ function toggleCombatFilter(k){ if (!(k in _combatFilter)) return; _combatFilter
 let _showMobStatus = true;
 (function(){ try { let s = localStorage.getItem('lineage_idle_mob_status'); if (s !== null) _showMobStatus = (s === '1'); } catch(e){} })();
 function toggleMobStatus(){ _showMobStatus = !_showMobStatus; try { localStorage.setItem('lineage_idle_mob_status', _showMobStatus ? '1' : '0'); } catch(e){} let b = document.getElementById('cf-btn-status'); if (b) b.classList.toggle('cf-off', !_showMobStatus); renderMobs(); let tm = document.getElementById('town-npc-map'); if (tm) { tm.classList.toggle('show-labels', _showMobStatus); if (_showMobStatus && typeof _resolveTownLabelOverlap === 'function') _resolveTownLabelOverlap(); } }   /* 🏷️ v3.2.92 同步切換城鎮 NPC 名牌常駐顯示 */
-// 🩸 怪物血量條顯示開關（按鈕在「狀態」左側·點亮才在怪卡顯示短血條；預設關閉＝沿用無血條的乾淨版面）
-let _showMobHp = false;
+// 🩸 怪物血量條顯示開關（按鈕在「狀態」左側·點亮才在怪卡顯示短血條；v3.8.35 預設開啟＝進戰鬥就看得見血量，玩家仍可按鈕關閉）
+let _showMobHp = true;
 (function(){ try { let s = localStorage.getItem('lineage_idle_mob_hp'); if (s !== null) _showMobHp = (s === '1'); } catch(e){} })();
 function toggleMobHp(){ _showMobHp = !_showMobHp; try { localStorage.setItem('lineage_idle_mob_hp', _showMobHp ? '1' : '0'); } catch(e){} let b = document.getElementById('cf-btn-hp'); if (b) b.classList.toggle('cf-off', !_showMobHp); renderMobs(); }
 

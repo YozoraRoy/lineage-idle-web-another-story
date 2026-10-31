@@ -618,11 +618,43 @@ function trialRun(reqs, rewardId) {
 function trialExName(n, rewardId) { return `${DB.items[rewardId].n}${n > 1 ? ` ×${n}` : ''}`; }
 
 // ===== 🦴 v3.1.68 席琳遺骸 NPC（席琳神殿）=====
-// 伊奧：席琳結晶 1 顆 → 兌換指定部位遺骸（8 選 1·必附隨機一種席琳詞綴·committed lootRng 防 SL 重抽）
-// 版型比照「製作」(renderUniversalCraft js/14)：左＝遺骸圖示＋名稱＋兌換材料(craftReqHtml)，右＝數量輸入＋兌換鈕。
+// 伊奧：席琳結晶 1 顆 → 兌換指定部位遺骸（8 選 1·必附隨機一種席琳詞綴·committed lootRng 防 SL 重抽）或受祝福的武防施法卷軸
+// 版型比照「製作」(renderUniversalCraft js/14)：左＝遺骸/卷軸圖示＋名稱＋兌換材料(craftReqHtml)，右＝數量輸入＋兌換鈕。
 function renderIoExchange(div) {
-    let html = `<div class="text-slate-300 text-sm mb-1 px-1">伊奧：「席琳的力量凝於遺骸之中。獻上結晶，選擇你要的部位吧——至於它承載哪一種祝福，由席琳決定。」</div>
-        <div class="text-slate-400 text-xs mb-3 px-1">每件消耗 <span class="c-sherine font-bold">席琳結晶 ×1</span>（背包優先，不足扣共用倉庫）。兌換出的遺骸必附<span class="c-sherine">隨機一種席琳套裝詞綴</span>；集齊相同套裝名的遺骸（裝備欄底部 8 格）即可發動套裝效果。</div>`;
+    let html = `<div class="text-slate-300 text-sm mb-1 px-1">伊奧：「席琳的力量凝於遺骸與咒文之中。獻上結晶，選擇你渴望的恩賜吧——至於遺骸承載哪一種祝福，由席琳決定。」</div>
+        <div class="text-slate-400 text-xs mb-3 px-1">每件消耗 <span class="c-sherine font-bold">席琳結晶 ×1</span>（背包優先，不足扣共用倉庫）。兌換出的遺骸必附<span class="c-sherine">隨機一種席琳套裝詞綴</span>；亦可直接兌換受祝福的武器或盔甲施法卷軸。</div>`;
+
+    // 📜 祝福的施法卷軸兌換
+    const IO_SCROLLS = [
+        { id: 'scroll_weapon_b' },
+        { id: 'scroll_armor_b' }
+    ];
+    html += `<div class="text-amber-300 font-bold text-sm mt-1 mb-2 px-1">📜 祝福的施法卷軸</div>`;
+    IO_SCROLLS.forEach(s => {
+        let d = DB.items[s.id];
+        if (!d) return;
+        let reqHtml = craftReqHtml([{ id: 'sherine_crystal', cnt: 1 }]);
+        html += `
+        <div class="list-item bg-slate-800 rounded mb-2 border border-slate-700 p-3 hover:bg-slate-700 transition-colors" style="display:flex !important; justify-content:space-between !important; align-items:center !important; width:100% !important; box-sizing:border-box !important;">
+            <div class="flex items-center gap-4 min-w-0 flex-1">
+                <div class="w-12 h-12 bg-slate-900 rounded border border-slate-600 flex items-center justify-center shrink-0">
+                    <img src="${getIconUrl(d)}" onerror="this.style.display='none';" class="w-10 h-10 object-contain pointer-events-none">
+                </div>
+                <div class="flex flex-col items-start gap-1.5">
+                    <span class="${d.c || getItemColor({ id: s.id })} font-bold text-lg leading-none truncate">${d.n}</span>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-slate-400 text-sm">兌換材料：</span>${reqHtml}
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <input type="number" min="1" value="1" id="io-qty-${s.id}" onclick="event.stopPropagation()" class="w-14 px-1 py-2 bg-slate-900 border border-slate-600 rounded text-center text-white font-bold">
+                <button class="btn bg-green-900 hover:bg-green-800 border-green-600 py-2 px-6 font-bold shadow" onclick="doIoExchange('${s.id}')"><span class="c-sherine">兌換</span></button>
+            </div>
+        </div>`;
+    });
+
+    html += `<div class="text-purple-300 font-bold text-sm mt-3 mb-2 px-1">🦴 席琳遺骸（必附隨機一種席琳套裝詞綴）</div>`;
     SHERINE_REMAINS.forEach(r => {
         let d = DB.items[r.id];
         let reqHtml = craftReqHtml([{ id: 'sherine_crystal', cnt: 1 }]);   // 🔧 共用製作的需求列（顏色/數量/含倉庫存量判定一致）
@@ -647,22 +679,32 @@ function renderIoExchange(div) {
     });
     div.innerHTML = `<div class="p-2">${html}</div>`;
 }
-function doIoExchange(remId) {
-    if (!SHERINE_REMAINS.some(r => r.id === remId)) return;
-    let qtyInput = document.getElementById(`io-qty-${remId}`);
+function doIoExchange(targetId) {
+    let isRem = SHERINE_REMAINS.some(r => r.id === targetId);
+    let isScroll = targetId === 'scroll_weapon_b' || targetId === 'scroll_armor_b';
+    if (!isRem && !isScroll) return;
+    let qtyInput = document.getElementById(`io-qty-${targetId}`);
     let qty = Math.max(1, parseInt(qtyInput && qtyInput.value) || 1);
     let have = questCountId('sherine_crystal');   // 🔧 含共用倉庫
     if (have < 1) { logSys('<span class="text-red-400 font-bold">材料不足，無法兌換。</span><span class="text-red-300">（尚缺：席琳結晶 1）</span>'); return; }
     let n = Math.min(qty, have);   // 結晶不足時自動以持有量為上限（比照製作 makeCount）
-    let tally = {};
-    for (let i = 0; i < n; i++) {
-        questConsumeId('sherine_crystal', 1);   // 🔧 背包優先，不足扣共用倉庫
-        let _g = SHERINE_EFFECTS[Math.floor(lootRng('ioaff') * SHERINE_EFFECTS.length)];   // 🎲 committed RNG：兌換當下逐件擲定詞綴（防存讀檔重抽）
-        gainSherineRemains(remId, _g, true);   // silent：改由下方彙總一行
-        tally[_g] = (tally[_g] || 0) + 1;
+
+    if (isScroll) {
+        questConsumeId('sherine_crystal', n);   // 🔧 背包優先，不足扣共用倉庫
+        gainItem(targetId, n);
+        let d = DB.items[targetId];
+        logSys(`<span class="c-sherine font-bold">✦ 伊奧的兌換</span>：獲得 <span class="${getItemColor({ id: targetId })} font-bold">${d ? d.n : targetId}</span> ×${n}（消耗 席琳結晶 ×${n}）`);
+    } else {
+        let tally = {};
+        for (let i = 0; i < n; i++) {
+            questConsumeId('sherine_crystal', 1);   // 🔧 背包優先，不足扣共用倉庫
+            let _g = SHERINE_EFFECTS[Math.floor(lootRng('ioaff') * SHERINE_EFFECTS.length)];   // 🎲 committed RNG：兌換當下逐件擲定詞綴（防存讀檔重抽）
+            gainSherineRemains(targetId, _g, true);   // silent：改由下方彙總一行
+            tally[_g] = (tally[_g] || 0) + 1;
+        }
+        let parts = Object.keys(tally).map(g => `<span class="c-sherine font-bold">${g}${DB.items[targetId].n}</span>${tally[g] > 1 ? ` ×${tally[g]}` : ''}`);
+        logSys(`<span class="c-sherine font-bold">✦ 伊奧的兌換</span>：${parts.join('、')}（消耗 席琳結晶 ×${n}）`);
     }
-    let parts = Object.keys(tally).map(g => `<span class="c-sherine font-bold">${g}${DB.items[remId].n}</span>${tally[g] > 1 ? ` ×${tally[g]}` : ''}`);
-    logSys(`<span class="c-sherine font-bold">✦ 伊奧的兌換</span>：${parts.join('、')}（消耗 席琳結晶 ×${n}）`);
     saveGame();
     let _c = document.getElementById('interaction-content'); if (_c) renderIoExchange(_c);   // 就地重渲染（更新結晶持有數，可連續兌換）
 }

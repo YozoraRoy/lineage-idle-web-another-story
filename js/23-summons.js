@@ -454,7 +454,6 @@ function mercSummonV2Plan(owner) {
     return { form: form, count: cnt, lv: (e && e.mob && e.mob.lv) || 1 };
 }
 function summonV2CastFor(skId, silent) {   // castSkill 分流入口（sk_summon/sk_zombie/sk_elf_summon/sk_elf_summon2）：true=成功（MP 由 castSkillInner 扣）
-    if (typeof _petInWild === 'function' && !_petInWild()) { if (!silent) logSys('安全區內無法召喚（請到狩獵區再施放）。'); return false; }
     let ents = [], castMsg = '';
     if (skId === 'sk_summon') {
         const form = summonV2ActiveForm();
@@ -501,9 +500,13 @@ function summonV2DismissAll(quiet) {
     player.buffs[summonV2ActiveSk()] = 0;
     renderSummonPanel(true);
 }
-function summonV2Recast() {   // 隊伍面板「重新施放」鈕：走正規 castSkill（檢查 MP/沉默）
+function summonV2Recast() {   // 隊伍面板「重新施放」鈕：走正規 castSkill（檢查 MP/沉默）；法師召喚術戴召喚控制戒指時開啟選單
     const skId = summonV2ActiveSk();
     if (!summonV2Knows(skId)) return;
+    if (skId === 'sk_summon' && typeof hasSummonCtrlRing === 'function' && hasSummonCtrlRing(player)) {
+        openSummonSelect();
+        return;
+    }
     if (typeof castSkill === 'function') castSkill(skId);
 }
 
@@ -743,7 +746,7 @@ function renderSummonTeamHTML() {
                 <span class="text-slate-400 text-xs">${remain > 0 ? time : ''}</span>
             </div>
             ${rows || '<div class="bg-slate-800/80 border border-purple-900 rounded px-2 py-1 text-xs text-slate-400">等待重新召喚</div>'}
-            ${regular.length ? '<button onclick="summonV2Recast()" class="btn w-full text-xs font-bold" style="padding:3px 0;background:linear-gradient(135deg,#4c1d95,#6d28d9);border:1px solid #7c3aed;color:#ddd6fe;border-radius:4px;">重新施放</button>' : ''}`;
+            ${(regular.length || (player && player._summonV2On && summonV2Knows(skId))) ? `<button onclick="summonV2Recast()" class="btn w-full text-xs font-bold" style="padding:3px 0;background:linear-gradient(135deg,#4c1d95,#6d28d9);border:1px solid #7c3aed;color:#ddd6fe;border-radius:4px;">${(skId === 'sk_summon' && typeof hasSummonCtrlRing === 'function' && hasSummonCtrlRing(player)) ? '重新施放（挑選召喚物）' : '重新施放'}</button>` : ''}`;
     } catch (e) { return ''; }
 }
 // 🧱 v3.4.51 傭兵召喚物 HP 卡（比照玩家召喚物呈現·接在其後）：v3.4.50 起傭兵召喚物無 sprite 但有血量·此為唯一血量可視化。
@@ -803,7 +806,7 @@ function openSummonSelect() {
             const sel = cur === m.n;
             return `<button ${usable ? `onclick="chooseSummon('${m.n}')"` : 'disabled'} class="btn" style="display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:4px 8px;margin:2px 0;border-radius:4px;border:1px solid ${sel ? '#a78bfa' : '#334155'};background:${sel ? 'linear-gradient(135deg,#4c1d95,#5b21b6)' : '#0f172a'};${usable ? '' : 'opacity:0.45;cursor:not-allowed;'}">
                 <span><b class="${sel ? 'text-purple-200' : 'text-slate-200'}">${m.n}</b> <span class="text-slate-400" style="font-size:11px;">Lv.${m.lv}·HP${m.hp}</span></span>
-                <span class="text-slate-400" style="font-size:11px;white-space:nowrap;">${usable ? `×${cnt}·攻1D${d.dice}+${d.flat}·${(m.aspd / 10).toFixed(1)}s` : (ok ? `魅力不足（數量 0·需(魅力+6)/${t.div}≥1）` : (t.reqCha && (player.d.cha || 0) < t.reqCha ? `需魅力${t.reqCha}` : '未解鎖'))}</span>
+                <span class="text-slate-400" style="font-size:11px;white-space:nowrap;">${usable ? `×${cnt}·攻1D${d.dice}+${d.flat}·${(m.aspd / 10).toFixed(1)}s` : (ok ? `魅力不足（數量 0·需(魅力+6)/${t.div}≥1）` : (t.reqCha && (((player.d && player.d.cha) || (player.cha) || 0) < t.reqCha) ? `需魅力${t.reqCha}` : '未解鎖'))}</span>
             </button>`;
         }).join('');
         return `<div style="margin-bottom:6px;"><div class="text-amber-300 font-bold" style="font-size:12px;">${t.reqLv} 級以上${t.reqCha ? '·魅力 ' + t.reqCha : ''}<span class="text-slate-500">（數量 ${t.fixedCount ? '固定 1 隻' : `(魅力+6)/${t.div}·最多 ${t.cap}${t.ringCap > t.cap ? '（戒指 ' + t.ringCap + '）' : ''} 隻`}）</span></div>${mobs}</div>`;
@@ -823,7 +826,6 @@ function chooseSummon(name) {
     logSys(name ? `召喚術目標已設定為 <span class="text-purple-300 font-bold">${name}</span>。` : '召喚術已改回預設（已解鎖最高階）。');
     const ov = document.getElementById('summon-select-overlay'); if (ov) ov.remove();
     try { saveGame(); } catch (e) {}
-    // 已有「召喚術」召喚物在場且選擇改變 → 立即重施一次（消耗 MP）
-    // v3.2.40 稽核修：明確施放 sk_summon——原 summonV2Recast() 施的是當前技能，造屍術/屬性精靈在場時會誤重施它白花 MP
-    if (player._summonV2On && summonV2ActiveSk() === 'sk_summon' && summonV2List().some(s => !s._downed && s.form !== (name || summonV2ActiveForm())) && typeof castSkill === 'function') castSkill('sk_summon');
+    // 選定後立即施放召喚術（重新施放/更新召喚物）
+    if (summonV2Knows('sk_summon') && typeof castSkill === 'function') castSkill('sk_summon');
 }

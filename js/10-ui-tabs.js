@@ -330,6 +330,7 @@ player.inv.forEach(i => {
     // ⚡ 快速強化模式：對應分頁啟用且為可強化裝備（未鎖定）時，右側顯示勾選欄，點整列切換勾選
     let _qeType = (d.type === 'wpn' && !d.isArrow) ? 'wpn' : ((d.type === 'arm' || d.type === 'acc') ? 'arm' : null);
     let _qjType = (d.type === 'wpn') ? 'wpn' : ((d.type === 'arm' || d.type === 'acc') ? 'arm' : 'item');   // 🗑️ 快速廢品分頁歸屬（含箭矢→武器分頁、其餘→道具分頁）
+    let _qrType = (d.type === 'wpn') ? 'wpn' : ((d.type === 'arm' || d.type === 'acc') ? 'arm' : 'item');   // ♻️ 快速回收分頁歸屬
     if (_qeType && quickEnh[_qeType].active && _qeCanSelect(d, i, _qeType)) {   // ⚡ v3.5.87 改用與執行端 _qeEligibleItems 同一 predicate：noEnhance 等不合格物品不再顯示可勾（改走下方一般列分支）
         let _checked = !!quickEnh[_qeType].sel[i.uid];
         el.innerHTML = `<div class="flex items-center justify-between gap-2">${_rowInner}<input type="checkbox" class="pointer-events-none w-4 h-4 mr-1 flex-shrink-0" ${_checked ? 'checked' : ''}></div>`;
@@ -340,6 +341,11 @@ player.inv.forEach(i => {
         el.innerHTML = `<div class="flex items-center justify-between gap-2">${_rowInner}<input type="checkbox" class="pointer-events-none w-4 h-4 mr-1 flex-shrink-0" ${_checked ? 'checked' : ''}></div>`;
         if (_checked) el.className += ' ring-2 ring-amber-500/70';
         el.onclick = () => toggleQuickJunkItem(_qjType, i.uid);
+    } else if (quickRecycle && quickRecycle[_qrType] && quickRecycle[_qrType].active && _qrCanSelect(d, i, _qrType)) {   // ♻️ 快速回收
+        let _checked = !!quickRecycle[_qrType].sel[i.uid];
+        el.innerHTML = `<div class="flex items-center justify-between gap-2">${_rowInner}<input type="checkbox" class="pointer-events-none w-4 h-4 mr-1 flex-shrink-0" ${_checked ? 'checked' : ''}></div>`;
+        if (_checked) el.className += ' ring-2 ring-cyan-500/70';
+        el.onclick = () => toggleQuickRecycleItem(_qrType, i.uid);
     } else {
         el.innerHTML = _rowInner;
         // 🖱️ v3.0.38 雙擊快速操作（用戶要求）：可使用型道具（藥水/卷軸/技能書/有效果的 misc）雙擊直接使用、
@@ -583,7 +589,7 @@ function renderSkillSelects() {
                 let __ring = (typeof hasSummonCtrlRing === 'function') && hasSummonCtrlRing(player);
                 let __cur = summonV2ActiveForm() || '—';
                 __sumSel = __ring
-                    ? ` <button onclick="openSummonSelect()" class="text-cyan-300 underline" style="font-size:11px;" title="召喚控制戒指：挑選召喚物">［${__cur}▾］</button>`
+                    ? ` <button onclick="event.stopPropagation(); event.preventDefault(); openSummonSelect();" class="text-cyan-300 underline" style="font-size:11px;" title="召喚控制戒指：挑選召喚物">［${__cur}▾］</button>`
                     : ` <span class="text-slate-500" style="font-size:11px;" title="裝備召喚控制戒指可挑選召喚物">［${__cur}］</span>`;
             }
             buffHtml += `<label class="cursor-pointer flex items-center gap-2 ${(isAvail && !__locked && !__awakenLocked)?'':'opacity-50'}"${__ttl}><input type="checkbox" id="auto-sk-${sid}" ${checked} ${__dis}${sumAttr}${__awakenAttr}${__purAttr}${__autoBuffAttr}> <span class="${__span}">${skillDisplayName}</span>${__sumSel}</label>`;
@@ -1315,6 +1321,17 @@ function openModal(item, isEq, slot) {
     // 只要是放在背包裡的物品，都顯示販賣價格
     if (!isEq) {
          desc += `<br><span class="text-yellow-400 mt-2 block">販賣價格: ${sellPrice} 金幣</span>`;
+         let _floatNoSellDesc = !!(d.noSell && !(typeof trialDropBlocked === 'function' && trialDropBlocked(item.id)));
+         if (!_floatNoSellDesc) {
+             let _fr = getFloatRecycleRange(item);
+             let _en = Math.max(0, Number(item.en) || 0);
+             let _scrollNote = '';
+             if (_en > 0) {
+                 if (d.type === 'wpn' && !d.isArrow) _scrollNote = `／對武器施法的卷軸 ${_en}`;
+                 else if (d.type === 'arm') _scrollNote = `／對盔甲施法的卷軸 ${_en}`;
+             }
+             desc += `<br><span class="text-cyan-300 block">浮動回收: ${_fr.goldMin.toLocaleString()} ~ ${_fr.goldMax.toLocaleString()} 金幣${_fr.diamondMax >= 1 ? `／龍鑽 ${_fr.diamondMin} ~ ${_fr.diamondMax}` : ''}${_scrollNote}</span>`;
+         }
     }
     
     document.getElementById('modal-item-desc').innerHTML = desc;
@@ -1344,6 +1361,13 @@ function openModal(item, isEq, slot) {
         if (!item.lock) {
             act += `<button class="btn border-orange-700 bg-orange-900 hover:bg-orange-800 py-2 text-base font-bold" onclick="sellItem('${item.uid}', 1, ${sellPrice})">販賣</button>
                     <button class="btn border-orange-700 bg-orange-900 hover:bg-orange-800 py-2 text-base font-bold" onclick="sellItem('${item.uid}', ${item.cnt}, ${sellPrice})">全部賣出</button>`;
+            // ♻️ 浮動回收：以目前賣價 50%~150% 隨機回收，可選金幣或龍鑽（1 龍鑽 = 100 萬金幣），有強化加成則可回收卷軸
+            let _floatNoSell = !!(d.noSell && !(typeof trialDropBlocked === 'function' && trialDropBlocked(item.id)));
+            if (!_floatNoSell) {
+                let _en = Math.max(0, Number(item.en) || 0);
+                let _hasScrollRecycle = _en > 0 && ((d.type === 'wpn' && !d.isArrow) || d.type === 'arm');
+                act += `<button class="col-span-2 w-full btn border-cyan-700 bg-cyan-900 hover:bg-cyan-800 py-2 text-base font-bold mt-2" onclick="showFloatRecycleOptions('${item.uid}')">浮動回收（金幣／龍鑽${_hasScrollRecycle ? '／卷軸' : ''}）</button>`;
+            }
         }
     }
 
@@ -1670,7 +1694,7 @@ function buildQuickEnhanceHeader(type) {
 
 // 注意：renderTabs 有「背包/裝備內容簽章」快取，內容未變會提早 return。快速強化只改 quickEnh 狀態（不在簽章內），
 //       故這些切換一律用 renderTabs(true) 強制重建，否則畫面不會更新。
-function toggleQuickEnhance(type) { if (quickJunk[type] && quickJunk[type].active) { quickJunk[type].active = false; quickJunk[type].sel = {}; } let st = quickEnh[type]; st.active = true; if (st.target == null) st.target = 6; st.sel = {}; renderTabs(true); }
+function toggleQuickEnhance(type) { if (quickJunk[type] && quickJunk[type].active) { quickJunk[type].active = false; quickJunk[type].sel = {}; } if (quickRecycle && quickRecycle[type] && quickRecycle[type].active) { quickRecycle[type].active = false; quickRecycle[type].sel = {}; } let st = quickEnh[type]; st.active = true; if (st.target == null) st.target = 6; st.sel = {}; renderTabs(true); }
 function cancelQuickEnhance(type) { let st = quickEnh[type]; st.active = false; st.sel = {}; renderTabs(true); }
 function quickEnhanceSelectAll(type, checked) { let st = quickEnh[type]; st.sel = {}; if (checked) _qeEligibleItems(type).forEach(i => st.sel[i.uid] = true); renderTabs(true); }
 function toggleQuickItem(type, uid) { let st = quickEnh[type]; if (st.sel[uid]) delete st.sel[uid]; else st.sel[uid] = true; renderTabs(true); }
@@ -1741,12 +1765,29 @@ function _qjCanSelect(d, i, type) {
 function _qjEligibleItems(type) {
     return player.inv.filter(i => _qjCanSelect(DB.items[i.id], i, type));
 }
-// ⚡🗑️ 分頁頂端快速操作表頭：武器/防具＝[快速強化][快速廢品]；道具＝[快速廢品]（強化進行中沿用原強化表頭）
+
+// ♻️ 可批次浮動回收的背包物品（未鎖定且非不可販賣物）
+function _qrCanSelect(d, i, type) {
+    if (!d || i.lock) return false;
+    let noSell = !!(d.noSell && !(typeof trialDropBlocked === 'function' && trialDropBlocked(i.id)));
+    if (noSell) return false;
+    if (type === 'wpn') return d.type === 'wpn';
+    if (type === 'arm') return d.type === 'arm' || d.type === 'acc';
+    return d.type !== 'wpn' && d.type !== 'arm' && d.type !== 'acc';
+}
+function _qrEligibleItems(type) {
+    return player.inv.filter(i => _qrCanSelect(DB.items[i.id], i, type));
+}
+
+// ⚡🗑️♻️ 分頁頂端快速操作表頭：武器/防具＝[快速強化][快速廢品][快速回收]；道具＝[快速廢品][快速回收]
 function buildQuickHeader(type) {
     let hasEnh = (type === 'wpn' || type === 'arm');
     if (hasEnh && quickEnh[type].active) return buildQuickEnhanceHeader(type);   // 強化進行中：沿用原強化表頭
     let jnk = quickJunk[type];
     if (jnk.active) _qjSync(type);   // 🔧 渲染前先同步新掉落物品到面板狀態（新廢品預先勾選），確認時才不會誤取消其標記
+    let rec = quickRecycle && quickRecycle[type];
+    if (rec && rec.active) return buildQuickRecycleHeader(type);   // ♻️ 快速回收進行中
+
     let hdr = document.createElement('div');
     hdr.className = 'sticky top-0 z-10 bg-slate-800 pb-2';   // 🔧 遮擋條改用與框底色(.panel=#1e293b=slate-800)相同色→融入面板不突兀；仍為不透明：滾動時物品不會從按鈕上/下方透出
     // 🔧 表頭上緣亦覆蓋容器的 12px 上內距(p-3)：往上拉時 sticky 黏在裁切邊(top/margin-top:-12)、paddingTop:12 維持按鈕原位 → 物品也不會從按鈕「上方」透出（滾動後＝滾動前）。用 inline style（Tailwind CDN JIT 不保證新 class 即時生成）
@@ -1763,16 +1804,150 @@ function buildQuickHeader(type) {
         let cb = hdr.querySelector('label input'); if (cb) cb.indeterminate = someSel && !allSel;
         return hdr;
     }
-    // 皆未啟用：顯示按鈕（武器/防具有強化＋廢品；道具僅廢品）
+    // 皆未啟用：顯示按鈕（武器/防具有強化＋廢品＋回收；道具僅廢品＋回收）
     let btns = '';
-    if (hasEnh) btns += `<button onclick="toggleQuickEnhance('${type}')" class="flex-1 btn border-blue-700 bg-blue-900/70 hover:bg-blue-800 py-1.5 text-sm font-bold text-blue-200 rounded shadow">⚡ 快速強化</button>`;
-    btns += `<button onclick="toggleQuickJunk('${type}')" class="flex-1 btn border-amber-700 bg-amber-900/60 hover:bg-amber-800 py-1.5 text-sm font-bold text-amber-200 rounded shadow">🗑️ 快速廢品</button>`;
+    if (hasEnh) btns += `<button onclick="toggleQuickEnhance('${type}')" class="flex-1 btn border-blue-700 bg-blue-900/70 hover:bg-blue-800 py-1.5 px-1 text-xs sm:text-sm font-bold text-blue-200 rounded shadow">⚡ 快速強化</button>`;
+    btns += `<button onclick="toggleQuickJunk('${type}')" class="flex-1 btn border-amber-700 bg-amber-900/60 hover:bg-amber-800 py-1.5 px-1 text-xs sm:text-sm font-bold text-amber-200 rounded shadow">🗑️ 快速廢品</button>`;
+    btns += `<button onclick="toggleQuickRecycle('${type}')" class="flex-1 btn border-cyan-700 bg-cyan-900/70 hover:bg-cyan-800 py-1.5 px-1 text-xs sm:text-sm font-bold text-cyan-200 rounded shadow">♻️ 快速回收</button>`;
     hdr.innerHTML = `<div class="flex gap-1">${btns}</div>`;
     return hdr;
 }
-// 啟用快速廢品：取消同分頁快速強化＋預先勾選「已是廢品」者（用戶要求：廢品一開始就是勾選中）
+
+// ♻️ 快速回收表頭介面
+function buildQuickRecycleHeader(type) {
+    let st = quickRecycle[type];
+    let eligible = _qrEligibleItems(type);
+    let allSel = eligible.length > 0 && eligible.every(i => st.sel[i.uid]);
+    let someSel = eligible.some(i => st.sel[i.uid]);
+    let selCount = eligible.filter(i => st.sel[i.uid]).length;
+    let mode = st.mode || 'gold';
+
+    let hdr = document.createElement('div');
+    hdr.className = 'sticky top-0 z-10 bg-slate-800 pb-2';
+    hdr.style.top = '-12px'; hdr.style.marginTop = '-12px'; hdr.style.paddingTop = '12px';
+
+    let modeOpts = `<option value="gold" ${mode === 'gold' ? 'selected' : ''}>金幣</option>`
+                 + `<option value="diamond" ${mode === 'diamond' ? 'selected' : ''}>龍鑽</option>`;
+    if (type === 'wpn' || type === 'arm') {
+        modeOpts += `<option value="scroll" ${mode === 'scroll' ? 'selected' : ''}>卷軸優先</option>`;
+    }
+
+    hdr.innerHTML = `<div class="flex items-center gap-1 bg-slate-900/80 border border-cyan-800/60 rounded p-1">
+        <button onclick="cancelQuickRecycle('${type}')" class="btn border-slate-600 bg-slate-700 hover:bg-slate-600 px-2 py-1 text-xs font-bold text-white rounded">取消</button>
+        <button onclick="runQuickRecycle('${type}')" class="btn border-cyan-600 bg-cyan-800 hover:bg-cyan-700 px-2 py-1 text-xs font-bold text-cyan-100 rounded">回收${selCount > 0 ? `(${selCount})` : ''}</button>
+        <select onchange="quickRecycle['${type}'].mode = this.value; renderTabs(true);" class="bg-slate-800 border border-slate-600 text-cyan-200 text-xs font-bold rounded px-1 py-1" title="回收優先模式">${modeOpts}</select>
+        <label class="flex items-center gap-1 text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap ml-auto"><input type="checkbox" ${allSel ? 'checked' : ''} onchange="quickRecycleSelectAll('${type}', this.checked)"> 全選</label>
+    </div>`;
+    let cb = hdr.querySelector('label input'); if (cb) cb.indeterminate = someSel && !allSel;
+    return hdr;
+}
+
+// 啟用快速回收：取消同分頁的快速強化與快速廢品
+function toggleQuickRecycle(type) {
+    if ((type === 'wpn' || type === 'arm') && quickEnh[type].active) { quickEnh[type].active = false; quickEnh[type].sel = {}; }
+    if (quickJunk[type].active) { quickJunk[type].active = false; quickJunk[type].sel = {}; }
+    let st = quickRecycle[type];
+    st.active = true;
+    st.sel = {};
+    if (!st.mode) st.mode = 'gold';
+    renderTabs(true);
+}
+function cancelQuickRecycle(type) {
+    let st = quickRecycle[type];
+    st.active = false;
+    st.sel = {};
+    renderTabs(true);
+}
+function quickRecycleSelectAll(type, checked) {
+    let st = quickRecycle[type];
+    st.sel = {};
+    if (checked) _qrEligibleItems(type).forEach(i => st.sel[i.uid] = true);
+    renderTabs(true);
+}
+function toggleQuickRecycleItem(type, uid) {
+    let st = quickRecycle[type];
+    if (st.sel[uid]) delete st.sel[uid];
+    else st.sel[uid] = true;
+    renderTabs(true);
+}
+
+// 執行快速回收
+function runQuickRecycle(type) {
+    let st = quickRecycle[type];
+    let eligible = _qrEligibleItems(type);
+    let targetItems = eligible.filter(i => st.sel[i.uid]);
+    if (!targetItems.length) {
+        logSys('<span class="text-amber-400 font-bold">尚未勾選任何要回收的物品。</span>');
+        return;
+    }
+
+    let modeName = st.mode === 'diamond' ? '龍鑽' : (st.mode === 'scroll' ? '卷軸優先（無強化加成者得金幣）' : '金幣');
+    if (!confirm(`確定要將選取的 ${targetItems.length} 件物品進行快速浮動回收嗎？\n回收模式：${modeName}\n回收後物品將消失，無法復原。`)) {
+        return;
+    }
+
+    let totalGold = 0;
+    let totalDiamonds = 0;
+    let totalWeaponScrolls = 0;
+    let totalArmorScrolls = 0;
+    let targetUidSet = new Set(targetItems.map(i => i.uid));
+
+    for (let item of targetItems) {
+        let d = DB.items[item.id];
+        if (!d) continue;
+        let cnt = Math.max(1, Number(item.cnt) || 1);
+        let r = getFloatRecycleRange(item);
+        let en = Math.max(0, Number(item.en) || 0);
+
+        if (st.mode === 'scroll' && en > 0 && ((d.type === 'wpn' && !d.isArrow) || d.type === 'arm')) {
+            let scrollCount = en * cnt;
+            if (d.type === 'wpn') {
+                totalWeaponScrolls += scrollCount;
+            } else {
+                totalArmorScrolls += scrollCount;
+            }
+        } else if (st.mode === 'diamond') {
+            if (r.diamondMax >= 1) {
+                for (let k = 0; k < cnt; k++) totalDiamonds += _floatRecycleRoll(r.diamondMin, r.diamondMax, 'float-recycle-diamond');
+            } else {
+                for (let k = 0; k < cnt; k++) totalGold += _floatRecycleRoll(r.goldMin, r.goldMax, 'float-recycle-gold');
+            }
+        } else {
+            for (let k = 0; k < cnt; k++) totalGold += _floatRecycleRoll(r.goldMin, r.goldMax, 'float-recycle-gold');
+        }
+    }
+
+    // 扣除/移除背包內回收的物品
+    player.inv = player.inv.filter(i => !targetUidSet.has(i.uid));
+
+    // 發放獎勵
+    if (totalGold > 0) player.gold = (player.gold || 0) + totalGold;
+    if (totalDiamonds > 0 && typeof pandoraAdjustSharedDiamonds === 'function') {
+        pandoraAdjustSharedDiamonds(totalDiamonds);
+    }
+    if (totalWeaponScrolls > 0) gainItem('scroll_weapon', totalWeaponScrolls, true, true);
+    if (totalArmorScrolls > 0) gainItem('scroll_armor', totalArmorScrolls, true, true);
+
+    let gains = [];
+    if (totalGold > 0) gains.push(`<b class="text-yellow-300">${totalGold.toLocaleString()} 金幣</b>`);
+    if (totalDiamonds > 0) gains.push(`<b class="text-sky-300">${totalDiamonds.toLocaleString()} 龍鑽</b>`);
+    if (totalWeaponScrolls > 0) gains.push(`<b class="text-purple-300">${totalWeaponScrolls} 張 對武器施法的卷軸</b>`);
+    if (totalArmorScrolls > 0) gains.push(`<b class="text-purple-300">${totalArmorScrolls} 張 對盔甲施法的卷軸</b>`);
+    let gainStr = gains.length > 0 ? gains.join('、') : '無額外收益';
+
+    logSys(`<span class="text-cyan-300 font-bold">快速回收完成：</span>共回收 ${targetItems.length} 件物品，獲得 ${gainStr}。`);
+
+    st.active = false;
+    st.sel = {};
+    renderTabs(true);
+    updateUI();
+    try { saveGame(); } catch (e) {}
+}
+
+// 啟用快速廢品：取消同分頁快速強化與快速回收＋預先勾選「已是廢品」者（用戶要求：廢品一開始就是勾選中）
 function toggleQuickJunk(type) {
     if ((type === 'wpn' || type === 'arm') && quickEnh[type].active) { quickEnh[type].active = false; quickEnh[type].sel = {}; }
+    if (quickRecycle && quickRecycle[type] && quickRecycle[type].active) { quickRecycle[type].active = false; quickRecycle[type].sel = {}; }
     let st = quickJunk[type]; st.active = true; st.sel = {}; st.known = {};
     _qjEligibleItems(type).forEach(i => { st.known[i.uid] = true; if (i.junk) st.sel[i.uid] = true; });   // 開啟當下：全部納入 known，已是廢品者預先勾選
     renderTabs(true);
@@ -1817,6 +1992,148 @@ function getSellPrice(item) {
     if (item.bless === true) mult *= 10;   // 🔧 僅「祝福的」享 10 倍賣價；'cursed'（詛咒的）為負面詞綴不加價
     if (item.anc)   mult *= 10;
     return price * mult;
+}
+
+// ♻️ 浮動回收：以目前賣價（getSellPrice）為中心，隨機 50%~150% 回收。
+//    可選金幣或龍鑽；1 龍鑽 = 100 萬金幣（與血盟捐獻的 1 鑽 = 100 貢獻、1 萬金幣 = 1 貢獻一致）。
+//    若裝備上有武器或防具強化卷軸加成數值，額外提供回收「對武器施法的卷軸」或「對盔甲施法的卷軸」選項。
+const FLOAT_RECYCLE_GOLD_MIN = 0.5;
+const FLOAT_RECYCLE_GOLD_MAX = 1.5;
+const FLOAT_RECYCLE_DIAMOND_GOLD = 1000000;
+
+function getFloatRecycleRange(item) {
+    let base = Math.max(0, getSellPrice(item));
+    let goldMin = Math.max(1, Math.floor(base * FLOAT_RECYCLE_GOLD_MIN));
+    let goldMax = Math.max(goldMin, Math.floor(base * FLOAT_RECYCLE_GOLD_MAX));
+    let diamondMin = Math.floor(goldMin / FLOAT_RECYCLE_DIAMOND_GOLD);
+    let diamondMax = Math.floor(goldMax / FLOAT_RECYCLE_DIAMOND_GOLD);
+    if (diamondMax >= 1) diamondMin = Math.max(1, diamondMin);   // 有龍鑽選項時至少 1 顆，避免出現 0 顆
+    return { goldMin: goldMin, goldMax: goldMax, diamondMin: diamondMin, diamondMax: diamondMax };
+}
+
+function _floatRecycleRoll(min, max, tag) {
+    min = Math.max(0, Math.floor(Number(min) || 0));
+    max = Math.max(min, Math.floor(Number(max) || 0));
+    if (max <= min) return min;
+    let r = (typeof lootRng === 'function') ? lootRng(tag) : Math.random();   // 🎲 committed RNG：讀檔回到回收前也會得到相同結果
+    return min + Math.floor(r * (max - min + 1));
+}
+
+function showFloatRecycleOptions(uid) {
+    let item = player.inv.find(i => i.uid === uid);
+    if (!item) return;
+    let d = DB.items[item.id];
+    if (!d) return;
+    if (item.lock) { logSys('<span class="text-red-400">鎖定中的物品無法回收。</span>'); return; }
+    if (d.noSell && !(typeof trialDropBlocked === 'function' && trialDropBlocked(item.id))) { logSys('此物品無法回收。'); return; }
+
+    let r = getFloatRecycleRange(item);
+    let cnt = Math.max(1, Number(item.cnt) || 1);
+    let diaLine = r.diamondMax >= 1
+        ? `龍鑽 <b>${r.diamondMin} ~ ${r.diamondMax}</b> 顆`
+        : `龍鑽：價值不足 1 顆（浮動金幣上限需達 100 萬）`;
+
+    let en = Math.max(0, Number(item.en) || 0);
+    let scrollId = null;
+    let scrollName = '';
+    if (en > 0) {
+        if (d.type === 'wpn' && !d.isArrow) {
+            scrollId = 'scroll_weapon';
+            scrollName = (DB.items['scroll_weapon'] && DB.items['scroll_weapon'].n) || '對武器施法的卷軸';
+        } else if (d.type === 'arm') {
+            scrollId = 'scroll_armor';
+            scrollName = (DB.items['scroll_armor'] && DB.items['scroll_armor'].n) || '對盔甲施法的卷軸';
+        }
+    }
+    let scrollDesc = scrollId ? `｜卷軸：<b>${scrollName} ${en}</b> 張` : '';
+
+    document.getElementById('modal-item-name').innerHTML = `浮動回收：${getItemFullName(item)}`;
+    document.getElementById('modal-item-name').className = `text-xl font-bold mb-3 border-b border-slate-600 pb-3 text-cyan-300`;
+    document.getElementById('modal-item-desc').innerHTML =
+        `<span class="text-slate-300">目前賣價 <b class="text-yellow-300">${getSellPrice(item).toLocaleString()}</b> 金幣</span><br>`
+        + `<span class="text-cyan-300">浮動回收價（50%～150%）：金幣 <b>${r.goldMin.toLocaleString()} ~ ${r.goldMax.toLocaleString()}</b>｜${diaLine}${scrollDesc}</span><br>`
+        + `<span class="text-slate-400 text-sm">1 龍鑽 = 1,000,000 金幣；回收後物品消失，無法復原。</span>`;
+
+    let act = '';
+    act += `<button class="col-span-2 w-full btn border-cyan-700 bg-cyan-900 hover:bg-cyan-800 py-3 text-base font-bold text-cyan-100" onclick="floatRecycleItem('${uid}','gold',1)">回收 1 個（金幣 ${r.goldMin.toLocaleString()}~${r.goldMax.toLocaleString()}）</button>`;
+    if (r.diamondMax >= 1) {
+        act += `<button class="col-span-2 w-full btn border-sky-700 bg-sky-900 hover:bg-sky-800 py-3 text-base font-bold text-sky-100" onclick="floatRecycleItem('${uid}','diamond',1)">回收 1 個（龍鑽 ${r.diamondMin}~${r.diamondMax}）</button>`;
+    }
+    if (scrollId) {
+        act += `<button class="col-span-2 w-full btn border-purple-700 bg-purple-900 hover:bg-purple-800 py-3 text-base font-bold text-purple-100" onclick="floatRecycleItem('${uid}','scroll',1)">回收 1 個（${scrollName} ${en} 張）</button>`;
+    }
+    if (cnt > 1) {
+        act += `<button class="col-span-2 w-full btn border-cyan-800 bg-cyan-950 hover:bg-cyan-900 py-2 text-base font-bold text-cyan-200" onclick="floatRecycleItem('${uid}','gold',${cnt})">全部 ${cnt} 個回收（金幣 ${(r.goldMin * cnt).toLocaleString()}~${(r.goldMax * cnt).toLocaleString()}）</button>`;
+        if (r.diamondMax >= 1) {
+            act += `<button class="col-span-2 w-full btn border-sky-800 bg-sky-950 hover:bg-sky-900 py-2 text-base font-bold text-sky-200" onclick="floatRecycleItem('${uid}','diamond',${cnt})">全部 ${cnt} 個回收（龍鑽 ${r.diamondMin * cnt}~${r.diamondMax * cnt}）</button>`;
+        }
+        if (scrollId) {
+            act += `<button class="col-span-2 w-full btn border-purple-800 bg-purple-950 hover:bg-purple-900 py-2 text-base font-bold text-purple-200" onclick="floatRecycleItem('${uid}','scroll',${cnt})">全部 ${cnt} 個回收（${scrollName} ${en * cnt} 張）</button>`;
+        }
+    }
+    act += `<button class="col-span-2 w-full btn py-3 bg-slate-700 text-lg font-bold mt-2" onclick="returnToItemModal('${uid}', false)">返回</button>`;
+    document.getElementById('modal-actions').innerHTML = act;
+}
+
+function floatRecycleItem(uid, currency, count) {
+    let item = player.inv.find(i => i.uid === uid);
+    if (!item) return;
+    let d = DB.items[item.id];
+    if (!d) return;
+    if (item.lock) { logSys('<span class="text-red-400">鎖定中的物品無法回收。</span>'); return; }
+    if (d.noSell && !(typeof trialDropBlocked === 'function' && trialDropBlocked(item.id))) { logSys('此物品無法回收。'); return; }
+
+    let cnt = Math.max(1, Math.min(Math.floor(Number(count) || 1), Number(item.cnt) || 1));
+    let r = getFloatRecycleRange(item);
+    let isDiamond = currency === 'diamond';
+    let isScroll = currency === 'scroll';
+    if (isDiamond && r.diamondMax < 1) {
+        logSys('<span class="text-red-400">此物品價值不足 1 顆龍之鑽石，請改用金幣回收。</span>');
+        return;
+    }
+
+    let en = Math.max(0, Number(item.en) || 0);
+    let scrollId = (d.type === 'wpn' && !d.isArrow) ? 'scroll_weapon' : (d.type === 'arm' ? 'scroll_armor' : null);
+    if (isScroll && (!scrollId || en <= 0)) {
+        logSys('<span class="text-red-400">此裝備無卷軸強化加成數值，無法回收卷軸。</span>');
+        return;
+    }
+
+    let total = 0;
+    if (isScroll) {
+        let totalScrolls = en * cnt;
+        let sData = DB.items[scrollId];
+        let sName = (sData && sData.n) || (scrollId === 'scroll_weapon' ? '對武器施法的卷軸' : '對盔甲施法的卷軸');
+        gainItem(scrollId, totalScrolls, false, true);
+        logSys(`<span class="text-purple-300">浮動回收 ${cnt} 個 ${getItemFullName(item)}，獲得 <b>${totalScrolls} 張 ${sName}</b>。</span>`);
+    } else if (isDiamond) {
+        for (let k = 0; k < cnt; k++) total += _floatRecycleRoll(r.diamondMin, r.diamondMax, 'float-recycle-diamond');
+        if (typeof pandoraAdjustSharedDiamonds !== 'function') {
+            logSys('<span class="text-red-400">龍之鑽石系統尚未載入，請重新整理後再試。</span>');
+            return;
+        }
+        let res = pandoraAdjustSharedDiamonds(total);
+        if (!res || !res.ok) {
+            logSys(`<span class="text-red-400">${(res && res.error) || '龍之鑽石回收失敗。'}</span>`);
+            return;
+        }
+        logSys(`<span class="text-sky-300">浮動回收 ${cnt} 個 ${getItemFullName(item)}，獲得 <b>${total.toLocaleString()} 龍之鑽石</b>。</span>`);
+    } else {
+        for (let k = 0; k < cnt; k++) total += _floatRecycleRoll(r.goldMin, r.goldMax, 'float-recycle-gold');
+        player.gold += total;
+        logSys(`<span class="text-cyan-300">浮動回收 ${cnt} 個 ${getItemFullName(item)}，獲得 <b>${total.toLocaleString()} 金幣</b>。</span>`);
+    }
+
+    item.cnt = (Number(item.cnt) || 1) - cnt;
+    if (item.cnt <= 0) {
+        player.inv = player.inv.filter(i => i.uid !== uid);
+        closeModal();
+    } else {
+        showFloatRecycleOptions(uid);   // 還有剩餘數量：留在浮動回收頁，方便連續回收
+    }
+    renderTabs();
+    updateUI();
+    try { saveGame(); } catch (e) {}
 }
 
 // 🗑️ 玩家手動標示廢品 → 把自動賣出倒數重置為 10 秒（掃描節奏；真正的寬限期是 autoSellRules.delaySec，預設 60 秒）（標完 10 秒（掃描節奏；真正的寬限期是 autoSellRules.delaySec，預設 60 秒）沒有新動作才會賣，避免剛標就被賣掉）。
